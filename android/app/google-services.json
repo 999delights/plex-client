@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1079093832903",
+    "project_id": "plex-d9d6d",
+    "storage_bucket": "plex-d9d6d.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1079093832903:android:74d7b59fa6610e1c7ce2e2",
+        "android_client_info": {
+          "package_name": "com.example.filelist_downloader"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD-KyPM_FhWK9bheQNnIcQHX8oeXvaEtTg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
