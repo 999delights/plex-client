@@ -7,19 +7,24 @@ import 'my_home_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (kIsWeb) {
-    await Firebase.initializeApp(
-      options: FirebaseOptions(
-        apiKey: "AIzaSyCbBIq7NWV4W8-XGg2kDCmpzLBRFM9dxBk",
-        authDomain: "plex-d9d6d.firebaseapp.com",
-        projectId: "plex-d9d6d",
-        storageBucket: "plex-d9d6d.appspot.com",
-        messagingSenderId: "1079093832903",
-        appId: "1:1079093832903:web:81b299be2e88fa547ce2e2",
-      ),
-    );
-  } else {
-    await Firebase.initializeApp();
+  try {
+    if (kIsWeb) {
+      await Firebase.initializeApp(
+        options: FirebaseOptions(
+          apiKey: "AIzaSyCbBIq7NWV4W8-XGg2kDCmpzLBRFM9dxBk",
+          authDomain: "plex-d9d6d.firebaseapp.com",
+          projectId: "plex-d9d6d",
+          storageBucket: "plex-d9d6d.appspot.com",
+          messagingSenderId: "1079093832903",
+          appId: "1:1079093832903:web:81b299be2e88fa547ce2e2",
+        ),
+      );
+    } else {
+      await Firebase.initializeApp();
+    }
+  } catch (e) {
+    print("Error initializing Firebase: $e");
+    // Handle initialization errors (show a splash screen or error message)
   }
 
   runApp(MyApp());
@@ -31,20 +36,40 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Filelist Downloader',
+      title: 'bliss',
       theme: ThemeData(
         primarySwatch: Colors.blue,
         scaffoldBackgroundColor: Colors.black,
-textTheme: TextTheme(
-  bodyLarge: TextStyle(color: Colors.white),
-  bodyMedium: TextStyle(color: Colors.white),
-),
+        textTheme: TextTheme(
+          bodyLarge: TextStyle(color: Colors.white),
+          bodyMedium: TextStyle(color: Colors.white),
+        ),
         appBarTheme: AppBarTheme(
           backgroundColor: Colors.grey.withOpacity(0.3),
           titleTextStyle: TextStyle(color: Colors.white),
         ),
       ),
-      home: FirebaseAuth.instance.currentUser == null ? LoginPage() : MyHomePage(),
+      home: AuthWrapper(),
+    );
+  }
+}
+
+class AuthWrapper extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Center(child: CircularProgressIndicator());
+        } else if (snapshot.hasError) {
+          return Center(child: Text('Something went wrong'));
+        } else if (snapshot.hasData) {
+          return MyHomePage(); // User is signed in
+        } else {
+          return LoginPage(); // User is not signed in
+        }
+      },
     );
   }
 }

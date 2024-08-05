@@ -6,7 +6,9 @@ class TorrentDetailsPage extends StatelessWidget {
 
   TorrentDetailsPage({required this.torrent, required this.onDownload});
 
-  String _formatSize(int sizeInBytes) {
+  String _formatSize(String sizeInBytesStr) {
+    // Convert the string to an integer
+    int sizeInBytes = int.tryParse(sizeInBytesStr) ?? 0;
     double sizeInGB = sizeInBytes / (1024 * 1024 * 1024);
     return sizeInGB.toStringAsFixed(2) + ' GB';
   }
@@ -32,9 +34,11 @@ class TorrentDetailsPage extends StatelessWidget {
             SizedBox(height: 10),
             Text('Leechers: ${torrent['leechers']}'),
             SizedBox(height: 10),
-            Text('Description: ${torrent['small_description']}'),
+            if (torrent.containsKey('small_description'))
+              Text('Description: ${torrent['small_description']}'),
             SizedBox(height: 10),
-            Text('Uploaded: ${torrent['upload_date']}'),
+            if (torrent.containsKey('upload_date'))
+              Text('Uploaded: ${torrent['upload_date']}'),
             SizedBox(height: 20),
             ElevatedButton(
               onPressed: onDownload,

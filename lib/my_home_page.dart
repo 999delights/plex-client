@@ -1,8 +1,9 @@
 import 'dart:async';
 
-import 'package:filelist_downloader/structure_text_page.dart';
-import 'package:filelist_downloader/torrent_page.dart';
-import 'package:filelist_downloader/torrent_page2.dart';
+import 'fireworks_painter.dart';
+import 'structure_text_page.dart';
+import 'torrent_page.dart';
+import 'torrent_page2.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -24,15 +25,20 @@ class _MyHomePageState extends State<MyHomePage> {
   List<dynamic> _results = [];
   List<dynamic> _tvShows = [];
   List<dynamic> _seasonFolders = [];
+  String highestSpeed = '0'; // Default value
   String _message = '';
   final User? user = FirebaseAuth.instance.currentUser;
   int _activeDownloadCount = 0;
   Timer? _timer;
+  String _selectedSource = 'Filelist'; // Default torrent source
+  List<String> _torrentSources = ['Filelist', 'Pirate Bay']; // Torrent sources
+
 
   @override
   void initState() {
     super.initState();
     _fetchActiveDownloads();
+    _fetchHighestSpeed(); // Fetch the highest speed
     _timer = Timer.periodic(Duration(seconds: 5), (timer) => _fetchActiveDownloads());
   }
 
@@ -57,11 +63,17 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  
+   Future<void> _search(String query) async {
+    if (_selectedSource == 'Filelist') {
+      await _searchFilelist(query);
+    } else if (_selectedSource == 'Pirate Bay') {
+      await _searchPirateBay(query);
+    }
+  }
 
-  Future<void> _search(String query) async {
+  Future<void> _searchFilelist(String query) async {
     final String url = 'https://filelist.io/api.php';
-    final String allowedCategories = '1,2,3,4,6,19,20,21,23,26,27';
+    final String allowedCategories = '1,2,3,4,6,7,15,19,20,21,23,24,26,27';
     final response = await http.get(Uri.parse(
         '$url?username=andreiyu93&passkey=4747bc183148d707c794410fec1e60b4&action=search-torrents&type=name&query=$query&category=$allowedCategories'));
 
@@ -77,6 +89,44 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+Future<void> _searchPirateBay(String query) async {
+  final String url = 'https://apibay.org/q.php?q=$query&cat=0'; // Pirate Bay API URL
+  final response = await http.get(Uri.parse(url));
+
+  if (response.statusCode == 200) {
+    print('Pirate Bay Response: ${response.body}'); // Print the response body for debugging
+    setState(() {
+      _results = json.decode(response.body);
+      _message = '';
+    });
+  } else {
+    setState(() {
+      _message = 'Search failed';
+    });
+  }
+}
+
+
+Future<void> _fetchHighestSpeed() async {
+  try {
+    final response = await http.get(Uri.parse('http://numeserver.go.ro:8082/get_highest_speed'));
+
+    if (response.statusCode == 200) {
+      print('Response body: ${response.body}'); // Print response for debugging
+      final speedData = json.decode(response.body);
+      print('Decoded data: $speedData'); // Print decoded data for debugging
+
+      setState(() {
+        // Make sure you handle the possibility of the value being null
+        highestSpeed = speedData['highest_download_speed']?.toString() ?? '0';
+      });
+    } else {
+      print('Failed to fetch highest speed');
+    }
+  } catch (e) {
+    print('An error occurred: $e');
+  }
+}
 
 Future<void> _fetchFolderStatus() async {
     final String url = 'http://numeserver.go.ro:8082/folder_status';
@@ -111,6 +161,16 @@ Future<void> _download(int id, String downloadLink, String torrentName, String s
   final String? category = await _showCategoryDialog();
   if (category == null) return;
 
+  print('Selected category: $category');
+
+  if (category == 'movie') {
+    // Directly start download if the category is 'movie'
+    print('Starting download for movie...');
+    _startDownload(id, downloadLink, torrentName, smallDescription, size, category);
+    return;
+  }
+
+  // Continue with the existing flow if the category is 'tvshow'
   historyStack.add('category');
   String? seriesName;
   String? season;
@@ -118,17 +178,20 @@ Future<void> _download(int id, String downloadLink, String torrentName, String s
 
   while (historyStack.isNotEmpty) {
     final currentStep = historyStack.last;
+    print('Current step: $currentStep');
 
     switch (currentStep) {
       case 'category':
         final String? episodeOrSeason = await _showEpisodeOrSeasonDialog();
+        print('Selected episodeOrSeason: $episodeOrSeason');
         if (episodeOrSeason == null) {
           historyStack.removeLast();
           continue;
         }
         if (episodeOrSeason == 'entire_series') {
-          // Directly proceed to download without further prompts
-          historyStack.clear();
+          print('Selected entire_series');
+          historyStack.clear(); // Clear history stack to proceed directly to download
+     
           break;
         }
         entireSeason = episodeOrSeason == 'entire_season';
@@ -138,18 +201,21 @@ Future<void> _download(int id, String downloadLink, String torrentName, String s
       case 'entire_season':
       case 'single_episode':
         final bool? mainFolderExists = await _showMainFolderExistsDialog();
+        print('Main folder exists: $mainFolderExists');
         if (mainFolderExists == null) {
           historyStack.removeLast();
           continue;
         }
         if (!mainFolderExists) {
           seriesName = await _showSeriesNameDialog(torrentName);
+          print('Series name: $seriesName');
           if (seriesName == null) {
             historyStack.removeLast();
             continue;
           }
           if (!entireSeason) {
             season = await _showSeasonDialog(preFill: _extractSeasonFromEpisode(torrentName));
+            print('Season: $season');
             if (season == null) {
               historyStack.removeLast();
               continue;
@@ -158,6 +224,7 @@ Future<void> _download(int id, String downloadLink, String torrentName, String s
         } else {
           await _fetchFolderStatus(); // Fetch the folder status only if the folder exists
           seriesName = await _showSelectMainFolderDialog(torrentName: torrentName); // Pass the torrentName here
+          print('Selected series name: $seriesName');
           if (seriesName == null) {
             historyStack.removeLast();
             continue;
@@ -166,18 +233,21 @@ Future<void> _download(int id, String downloadLink, String torrentName, String s
           if (!entireSeason) {
             await _fetchSeasonFolders(seriesName); // Fetch the season folders for the selected series
             final bool? seasonFolderExists = await _showSeasonFolderExistsDialog();
+            print('Season folder exists: $seasonFolderExists');
             if (seasonFolderExists == null) {
               historyStack.removeLast();
               continue;
             }
             if (seasonFolderExists) {
               season = await _showSelectSeasonFolderDialog(torrentName: torrentName); // Pass the torrentName here
+              print('Selected season: $season');
               if (season == null) {
                 historyStack.removeLast();
                 continue;
               }
             } else {
               season = await _showSeasonDialog(preFill: _extractSeasonFromEpisode(torrentName));
+              print('Season (fallback): $season');
               if (season == null) {
                 historyStack.removeLast();
                 continue;
@@ -185,7 +255,7 @@ Future<void> _download(int id, String downloadLink, String torrentName, String s
             }
           }
         }
-        historyStack.clear();
+        historyStack.clear(); // Clear history stack after processing
         break;
 
       default:
@@ -193,6 +263,20 @@ Future<void> _download(int id, String downloadLink, String torrentName, String s
     }
   }
 
+  print('Starting download with parameters:');
+  print('ID: $id');
+  print('Download Link: $downloadLink');
+  print('Torrent Name: $torrentName');
+  print('Description: $smallDescription');
+  print('Size: $size');
+  print('Category: $category');
+  print('Series Name: $seriesName');
+  print('Season: $season');
+  print('Entire Season: $entireSeason');
+
+  _startDownload(id, downloadLink, torrentName, smallDescription, size, category, seriesName, season, entireSeason);
+}
+void _startDownload(int id, String downloadLink, String torrentName, String smallDescription, int size, String category, [String? seriesName, String? season, bool? entireSeason]) async {
   final body = {
     'id': id.toString(),
     'download_link': downloadLink,
@@ -223,7 +307,6 @@ Future<void> _download(int id, String downloadLink, String torrentName, String s
     );
   }
 }
-
 
 Future<String?> _showCategoryDialog() async {
   return await showDialog<String?>(
@@ -604,23 +687,31 @@ void _showLogoutConfirmation() {
     },
   );
 }
-  void _navigateToDetails(BuildContext context, dynamic torrent) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => TorrentDetailsPage(
-          torrent: torrent,
-          onDownload: () => _download(
-            torrent['id'],
-            torrent['download_link'],
-            torrent['name'],
-            torrent['small_description'],
-            torrent['size'],
-          ),
+void _navigateToDetails(BuildContext context, dynamic torrent) {
+  // Convert id and size to integers
+  int torrentId = int.tryParse(torrent['id']) ?? 0;
+  int torrentSize = int.tryParse(torrent['size']) ?? 0;
+
+  // Extract the download link, handle case where it might be missing or differently named
+  String downloadLink = torrent['download_link'] ?? '';
+
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => TorrentDetailsPage(
+        torrent: torrent,
+        onDownload: () => _download(
+          torrentId,
+          downloadLink,
+          torrent['name'],
+          torrent['small_description'] ?? '',
+          torrentSize,
         ),
       ),
-    );
-  }
+    ),
+  );
+}
+
 
   void _navigateToTorrentStatus(BuildContext context) {
     Navigator.push(
@@ -694,11 +785,13 @@ void _showLogoutConfirmation() {
             MaterialPageRoute(builder: (context) => StructureTextPage()),
           );
         },
+         highestSpeed: highestSpeed, // Pass the highest speed
       ),
       body: Padding(
         padding: EdgeInsets.all(16.0),
         child: Column(
           children: <Widget>[
+           
             CustomTextField(
               controller: _controller,
               hintText: 'Search',
@@ -713,7 +806,66 @@ void _showLogoutConfirmation() {
                       },
                     )
                   : null,
-            ),
+            ), SizedBox(height: 20),
+Container(
+  color: Colors.black, // Black background
+  child: Row(
+    mainAxisAlignment: MainAxisAlignment.center,
+    children: [
+      ElevatedButton(
+        onPressed: () {
+          setState(() {
+            _selectedSource = 'Filelist';
+          });
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.black, // Always black background
+          side: BorderSide(color: Colors.grey), // Grey border
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(0), // Rectangle shape
+          ),
+          fixedSize: Size(150, 50), // Adjust the size as needed
+        ),
+        child: Text(
+          'Filelist',
+          style: TextStyle(
+            fontSize: 18, // Larger text
+            fontWeight: FontWeight.bold, // Bold text
+            color: _selectedSource == 'Filelist' ? Colors.white : Colors.grey.withOpacity(0.3), // Change color based on selection
+          ),
+        ),
+      ),
+      SizedBox(width: 10),
+      ElevatedButton(
+        onPressed: null,
+        
+        // () {
+        //   setState(() {
+        //     _selectedSource = 'Pirate Bay';
+        //   });
+        // },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.black, // Always black background
+          side: BorderSide(color: Colors.grey), // Grey border
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(0), // Rectangle shape
+          ),
+          fixedSize: Size(150, 50), // Adjust the size as needed
+        ),
+        child: Text(
+          'Pirate Bay',
+          style: TextStyle(
+            fontSize: 18, // Larger text
+            fontWeight: FontWeight.bold, // Bold text
+            color: _selectedSource == 'Pirate Bay' ? Colors.white : Colors.grey.withOpacity(0.3), // Change color based on selection
+          ),
+        ),
+      ),
+    ],
+  ),
+),
+
+
             SizedBox(height: 20),
             CustomButton(
               text: 'Search',
@@ -735,28 +887,56 @@ void _showLogoutConfirmation() {
                         border: Border.all(color: Colors.grey, width: 1),
                       ),
                       child: ListView.builder(
-                        padding: EdgeInsets.all(8),
-                        itemCount: _results.length,
-                        itemBuilder: (context, index) {
-                          final result = _results[index];
-                          double sizeInGB = result['size'] / (1024 * 1024 * 1024);
-                          String formattedDate = DateFormat('yyyy-MM-dd')
-                              .format(DateTime.parse(result['upload_date']));
-                          return InkWell(
-                            onTap: () => _navigateToDetails(context, result),
-                            child: ListTile(
-                              title: Text(
-                                result['name'],
-                                style: TextStyle(color: Colors.white),
-                              ),
-                              subtitle: Text(
-                                'Size: ${sizeInGB.toStringAsFixed(2)} GB, Date: $formattedDate',
-                                style: TextStyle(color: Colors.white54),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
+  padding: EdgeInsets.all(8),
+  itemCount: _results.length,
+  itemBuilder: (context, index) {
+    final result = _results[index];
+    print('Result: $result'); // Print each result for debugging
+
+    String name = '';
+    double sizeInGB = 0.0;
+    String formattedDate = '';
+
+    try {
+      if (_selectedSource == 'Filelist') {
+        name = result['name'];
+        sizeInGB = result['size'] / (1024 * 1024 * 1024);
+        formattedDate = DateFormat('yyyy-MM-dd').format(DateTime.parse(result['upload_date']));
+      } else if (_selectedSource == 'Pirate Bay') {
+        name = result['name'];
+        sizeInGB = double.parse(result['size']) / (1024 * 1024 * 1024); // Convert size to double
+        formattedDate = DateFormat('yyyy-MM-dd').format(DateTime.fromMillisecondsSinceEpoch(int.parse(result['added']) * 1000)); // Convert epoch to formatted date
+      }
+
+      return InkWell(
+        onTap: () => _navigateToDetails(context, result),
+        child: ListTile(
+          title: Text(
+            name,
+            style: TextStyle(color: Colors.white),
+          ),
+          subtitle: Text(
+            'Size: ${sizeInGB.toStringAsFixed(2)} GB, Date: $formattedDate',
+            style: TextStyle(color: Colors.white54),
+          ),
+        ),
+      );
+    } catch (e) {
+      print('Error processing result: $e');
+      return ListTile(
+        title: Text(
+          'Error',
+          style: TextStyle(color: Colors.red),
+        ),
+        subtitle: Text(
+          'Could not process this result.',
+          style: TextStyle(color: Colors.white54),
+        ),
+      );
+    }
+  },
+)
+
                     ),
                   ),
           ],
@@ -766,19 +946,42 @@ void _showLogoutConfirmation() {
     );
   }
 }
-
-class AppDrawer extends StatelessWidget {
+class AppDrawer extends StatefulWidget {
   final User? user;
   final VoidCallback onLogout;
   final VoidCallback onRefresh;
   final VoidCallback onViewStructure;
+  final String highestSpeed;
 
   AppDrawer({
     required this.user,
     required this.onLogout,
     required this.onRefresh,
     required this.onViewStructure,
+    required this.highestSpeed,
   });
+
+  @override
+  _AppDrawerState createState() => _AppDrawerState();
+}
+
+class _AppDrawerState extends State<AppDrawer> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(seconds: 2),
+      vsync: this,
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -828,7 +1031,7 @@ class AppDrawer extends StatelessWidget {
                 ),
                 onTap: () {
                   Navigator.pop(context);
-                  onRefresh();
+                  widget.onRefresh();
                 },
               ),
               ListTile(
@@ -844,8 +1047,55 @@ class AppDrawer extends StatelessWidget {
                 ),
                 onTap: () {
                   Navigator.pop(context);
-                  onViewStructure();
+                  widget.onViewStructure();
                 },
+              ),
+              // Fireworks with highest speed
+              Container(
+                height: 150, // Adjust height as needed
+                width: double.infinity,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CustomPaint(
+                      painter: FireworksPainter(_controller),
+                      size: Size(double.infinity, double.infinity),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(12.0),
+                      decoration: BoxDecoration(
+                        color: Colors.yellow.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.yellow,
+                          width: 2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.yellow.withOpacity(0.5),
+                            spreadRadius: 3,
+                            blurRadius: 7,
+                            offset: Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: ListTile(
+                        leading: Icon(
+                          Icons.speed,
+                          color: Colors.white,
+                        ),
+                        title: Text(
+                          ' ${widget.highestSpeed} MB/s',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -854,7 +1104,7 @@ class AppDrawer extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.email, color: Colors.grey, size: 18),
                 title: Text(
-                  user?.email ?? 'Email',
+                  widget.user?.email ?? 'Email',
                   style: const TextStyle(fontSize: 10.0, color: Colors.white),
                 ),
               ),
@@ -875,7 +1125,7 @@ class AppDrawer extends StatelessWidget {
                   ),
                   onTap: () {
                     Navigator.pop(context);
-                    onLogout();
+                    widget.onLogout();
                   },
                 ),
               ),
@@ -886,8 +1136,6 @@ class AppDrawer extends StatelessWidget {
     );
   }
 }
-
-
 class CustomDialog extends StatelessWidget {
   final Widget title;
   final Widget content;

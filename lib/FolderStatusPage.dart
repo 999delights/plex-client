@@ -1,3 +1,4 @@
+import 'package:bliss/my_home_page.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -87,7 +88,7 @@ class _FolderStatusPageState extends State<FolderStatusPage> {
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        return AlertDialog(
+        return CustomDialog(
           title: Text('Confirm Delete'),
           content: Text('Are you sure you want to delete this folder?'),
           actions: [
@@ -113,7 +114,17 @@ class _FolderStatusPageState extends State<FolderStatusPage> {
       _searchQuery = query.toLowerCase();
     });
   }
+double _calculateTotalMoviesSize() {
+  return _movies.fold(0.0, (sum, movie) => sum + (movie['size'] as double));
+}
 
+double _calculateTotalTvShowsSize() {
+  return _tvShows.fold(0.0, (sum, tvShow) => sum + (tvShow['size'] as double));
+}
+
+double _calculateTotalAllSize() {
+  return _calculateTotalMoviesSize() + _calculateTotalTvShowsSize();
+}
   List<dynamic> _filterItems(List<dynamic> items) {
     return items.where((item) {
       final itemName = item['name'].toLowerCase();
@@ -264,21 +275,54 @@ class _FolderStatusPageState extends State<FolderStatusPage> {
     );
   }
 
-  Widget _buildHeader() {
-    String headerText;
-    if (_filter == 'all') {
-      headerText = 'Movies: ${_movies.length}, TV Shows: ${_tvShows.length}';
-    } else if (_filter == 'movies') {
-      headerText = 'Movies: ${_movies.length}';
-    } else {
-      headerText = 'TV Shows: ${_tvShows.length}';
-    }
+Widget _buildHeader() {
+  // Calculate sizes
+  final double totalMoviesSize = _calculateTotalMoviesSize();
+  final double totalTvShowsSize = _calculateTotalTvShowsSize();
+  final double totalSize = _calculateTotalAllSize();
+  final double maxSize = 2000.0; // 2 TB in GB
 
-    return Text(
-      headerText,
-      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-    );
+  // Convert numbers to strings
+  final String totalMoviesSizeStr = totalMoviesSize.toStringAsFixed(0); // Two decimal places
+  final String totalTvShowsSizeStr = totalTvShowsSize.toStringAsFixed(0); // Two decimal places
+  final String totalSizeStr = totalSize.toStringAsFixed(0); // Two decimal places
+  final String maxSizeStr = maxSize.toStringAsFixed(0); // Two decimal places
+
+
+  // Header text based on the filter
+  String headerText;
+  if (_filter == 'all') {
+    headerText = '${_movies.length} Movies, ${_tvShows.length} TV Shows';
+  } else if (_filter == 'movies') {
+    headerText = '${_movies.length} Movies';
+  } else {
+    headerText = '${_tvShows.length} TV Shows';
   }
+
+  // Create the header widget with length and space usage
+  return Padding(
+    padding: const EdgeInsets.all(8.0),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        // Length info
+        Text(
+          headerText,
+          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        // Space usage info
+        Text(
+          _filter == 'all'
+              ? '${totalSizeStr} / ${maxSizeStr} GB'
+              : _filter == 'movies'
+                  ? '${totalMoviesSizeStr} GB'
+                  : '${totalTvShowsSizeStr} GB',
+          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+      ],
+    ),
+  );
+}
 }
 
 class SubFolderPage extends StatelessWidget {
